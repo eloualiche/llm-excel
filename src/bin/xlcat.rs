@@ -1,6 +1,6 @@
-mod formatter;
-mod metadata;
-mod reader;
+use xlcat::formatter;
+use xlcat::metadata;
+use xlcat::reader;
 
 use anyhow::Result;
 use clap::Parser;
@@ -8,7 +8,7 @@ use polars::prelude::*;
 use std::path::PathBuf;
 use std::process;
 
-use metadata::{FileInfo, SheetInfo};
+use xlcat::metadata::{FileInfo, SheetInfo};
 
 #[derive(Parser, Debug)]
 #[command(name = "xlcat", about = "View Excel files in the terminal")]
