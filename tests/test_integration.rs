@@ -21,8 +21,8 @@ fn test_simple_file_default() {
         .stdout(predicate::str::contains("# File:"))
         .stdout(predicate::str::contains("# Sheets: 1"))
         .stdout(predicate::str::contains("## Sheet: Data"))
-        .stdout(predicate::str::contains("| name |"))
-        .stdout(predicate::str::contains("| Alice |"));
+        .stdout(predicate::str::contains("| name"))
+        .stdout(predicate::str::contains("| Alice"));
 }
 
 #[test]
@@ -36,9 +36,9 @@ fn test_schema_mode() {
         .arg(path.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("| Column | Type |"))
-        .stdout(predicate::str::contains("| name |"))
-        .stdout(predicate::str::contains("| Alice |").not());
+        .stdout(predicate::str::contains("| Column"))
+        .stdout(predicate::str::contains("| name"))
+        .stdout(predicate::str::contains("Alice").not());
 }
 
 #[test]

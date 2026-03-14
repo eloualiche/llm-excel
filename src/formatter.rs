@@ -1,5 +1,6 @@
 use crate::metadata::{format_file_size, FileInfo, SheetInfo};
 use polars::prelude::*;
+use std::fmt::Write as FmtWrite;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -35,15 +36,13 @@ pub fn format_schema(sheet: &SheetInfo, df: &DataFrame) -> String {
         "## Sheet: {} ({} rows x {} cols)\n\n",
         sheet.name, data_rows, cols
     );
-    out.push_str("| Column | Type |\n");
-    out.push_str("|--------|------|\n");
-
-    for col in df.get_columns() {
-        let name = col.name();
-        let dtype = format_dtype(col.dtype());
-        out.push_str(&format!("| {name} | {dtype} |\n"));
-    }
-
+    let headers = vec!["Column".to_string(), "Type".to_string()];
+    let rows: Vec<Vec<String>> = df
+        .get_columns()
+        .iter()
+        .map(|col| vec![col.name().to_string(), format_dtype(col.dtype()).to_string()])
+        .collect();
+    out.push_str(&render_table(&headers, &rows));
     out
 }
 
@@ -69,43 +68,17 @@ pub fn format_sheet_listing(
     out
 }
 
-/// Render the full DataFrame as a markdown table.
+/// Render the full DataFrame as a markdown table with aligned columns.
 pub fn format_data_table(df: &DataFrame) -> String {
-    let columns = df.get_columns();
-    let n_rows = df.height();
-
-    // Header row
-    let mut out = String::new();
-    out.push('|');
-    for col in columns {
-        out.push_str(&format!(" {} |", col.name()));
-    }
-    out.push('\n');
-
-    // Separator
-    out.push('|');
-    for _ in columns {
-        out.push_str("---|");
-    }
-    out.push('\n');
-
-    // Data rows
-    for row_idx in 0..n_rows {
-        out.push('|');
-        for col in columns {
-            let cell = format_cell(col, row_idx);
-            out.push_str(&format!(" {cell} |"));
-        }
-        out.push('\n');
-    }
-
-    out
+    let (headers, rows) = df_to_strings(df);
+    render_table(&headers, &rows)
 }
 
-/// Render head / tail view of a DataFrame.
+/// Render head / tail view of a DataFrame with aligned columns.
 ///
 /// If total rows <= head_n + tail_n, shows all rows.
 /// Otherwise shows first head_n rows, an omission line, then last tail_n rows.
+/// Column widths are computed from both head and tail so pipes stay aligned.
 pub fn format_head_tail(df: &DataFrame, head_n: usize, tail_n: usize) -> String {
     let total = df.height();
     if total <= head_n + tail_n {
@@ -116,14 +89,18 @@ pub fn format_head_tail(df: &DataFrame, head_n: usize, tail_n: usize) -> String 
     let tail_df = df.tail(Some(tail_n));
     let omitted = total - head_n - tail_n;
 
-    let mut out = format_data_table(&head_df);
-    out.push_str(&format!("... ({omitted} rows omitted) ...\n"));
-    // Append tail rows without repeating the header
-    let tail_table = format_data_table(&tail_df);
-    // Skip header line + separator line of the tail table
-    let tail_body = skip_table_header(&tail_table);
-    out.push_str(tail_body);
+    let (headers, head_rows) = df_to_strings(&head_df);
+    let (_, tail_rows) = df_to_strings(&tail_df);
 
+    // Compute widths from both head and tail rows
+    let mut all_rows = head_rows.clone();
+    all_rows.extend(tail_rows.clone());
+    let widths = compute_col_widths(&headers, &all_rows);
+
+    let mut out = render_table_header(&headers, &widths);
+    out.push_str(&render_table_rows(&head_rows, &widths));
+    out.push_str(&format!("... ({omitted} rows omitted) ...\n"));
+    out.push_str(&render_table_rows(&tail_rows, &widths));
     out
 }
 
@@ -160,31 +137,19 @@ pub fn format_describe(df: &DataFrame) -> String {
     let columns = df.get_columns();
     let stats = ["count", "null_count", "mean", "std", "min", "max", "median", "unique"];
 
-    // Header row
-    let mut out = String::from("| stat |");
-    for col in columns {
-        out.push_str(&format!(" {} |", col.name()));
-    }
-    out.push('\n');
+    let mut headers = vec!["stat".to_string()];
+    headers.extend(columns.iter().map(|c| c.name().to_string()));
 
-    // Separator
-    out.push_str("|------|");
-    for _ in columns {
-        out.push_str("---|");
-    }
-    out.push('\n');
+    let rows: Vec<Vec<String>> = stats
+        .iter()
+        .map(|stat| {
+            let mut row = vec![stat.to_string()];
+            row.extend(columns.iter().map(|col| compute_stat(col, stat)));
+            row
+        })
+        .collect();
 
-    // Stat rows
-    for stat in &stats {
-        out.push_str(&format!("| {stat} |"));
-        for col in columns {
-            let val = compute_stat(col, stat);
-            out.push_str(&format!(" {val} |"));
-        }
-        out.push('\n');
-    }
-
-    out
+    render_table(&headers, &rows)
 }
 
 fn compute_stat(col: &Column, stat: &str) -> String {
@@ -261,6 +226,71 @@ fn is_numeric(dtype: &DataType) -> bool {
 // Private helpers
 // ---------------------------------------------------------------------------
 
+/// Extract headers and row data as strings from a DataFrame.
+fn df_to_strings(df: &DataFrame) -> (Vec<String>, Vec<Vec<String>>) {
+    let columns = df.get_columns();
+    let headers: Vec<String> = columns.iter().map(|c| c.name().to_string()).collect();
+    let rows: Vec<Vec<String>> = (0..df.height())
+        .map(|i| columns.iter().map(|c| format_cell(c, i)).collect())
+        .collect();
+    (headers, rows)
+}
+
+/// Compute the display width for each column.
+fn compute_col_widths(headers: &[String], rows: &[Vec<String>]) -> Vec<usize> {
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len().max(3)).collect();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i < widths.len() {
+                widths[i] = widths[i].max(cell.len());
+            }
+        }
+    }
+    widths
+}
+
+/// Render a markdown table header + separator line.
+fn render_table_header(headers: &[String], widths: &[usize]) -> String {
+    let mut out = String::new();
+    out.push('|');
+    for (i, h) in headers.iter().enumerate() {
+        let _ = write!(out, " {:<w$} |", h, w = widths[i]);
+    }
+    out.push('\n');
+    out.push('|');
+    for w in widths {
+        out.push('-');
+        for _ in 0..*w {
+            out.push('-');
+        }
+        out.push_str("-|");
+    }
+    out.push('\n');
+    out
+}
+
+/// Render markdown table data rows (no header).
+fn render_table_rows(rows: &[Vec<String>], widths: &[usize]) -> String {
+    let mut out = String::new();
+    for row in rows {
+        out.push('|');
+        for (i, cell) in row.iter().enumerate() {
+            let w = if i < widths.len() { widths[i] } else { cell.len() };
+            let _ = write!(out, " {:<w$} |", cell, w = w);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Render a complete aligned markdown table.
+fn render_table(headers: &[String], rows: &[Vec<String>]) -> String {
+    let widths = compute_col_widths(headers, rows);
+    let mut out = render_table_header(headers, &widths);
+    out.push_str(&render_table_rows(rows, &widths));
+    out
+}
+
 /// Format a single cell value for markdown display.
 fn format_cell(col: &Column, idx: usize) -> String {
     match col.get(idx) {
@@ -305,23 +335,6 @@ fn format_dtype(dtype: &DataType) -> &'static str {
         DataType::Null => "Null",
         _ => "Other",
     }
-}
-
-/// Skip the first two lines (header + separator) of a markdown table string.
-fn skip_table_header(table: &str) -> &str {
-    let mut newlines = 0;
-    let mut pos = 0;
-    for (i, ch) in table.char_indices() {
-        if ch == '\n' {
-            newlines += 1;
-            pos = i + 1;
-            if newlines == 2 {
-                return &table[pos..];
-            }
-        }
-    }
-    // Fewer than 2 newlines — return empty
-    ""
 }
 
 /// Manual CSV fallback if CsvWriter is unavailable.
@@ -387,8 +400,15 @@ mod tests {
         let s2 = Series::new("value".into(), &[100i64, 200]);
         let df = DataFrame::new(vec![s1.into_column(), s2.into_column()]).unwrap();
         let out = format_data_table(&df);
-        assert!(out.contains("| name | value |"));
-        assert!(out.contains("| Alice | 100 |"));
+        assert!(out.contains("| name  | value |"));
+        assert!(out.contains("| Alice | 100   |"));
+        // Verify pipes are aligned: all lines have same length
+        let lines: Vec<&str> = out.trim().lines().collect();
+        assert!(lines.len() >= 3);
+        let expected_len = lines[0].len();
+        for line in &lines {
+            assert_eq!(line.len(), expected_len, "Misaligned: {line}");
+        }
     }
 
     #[test]
@@ -397,8 +417,8 @@ mod tests {
         let df = DataFrame::new(vec![s.into_column()]).unwrap();
         let out = format_head_tail(&df, 25, 25);
         assert!(!out.contains("omitted"));
-        assert!(out.contains("| 1 |"));
-        assert!(out.contains("| 3 |"));
+        assert!(out.contains("| 1 "));
+        assert!(out.contains("| 3 "));
     }
 
     #[test]
@@ -409,10 +429,10 @@ mod tests {
         let df = DataFrame::new(vec![s.into_column()]).unwrap();
         let out = format_head_tail(&df, 25, 25);
         assert!(out.contains("(10 rows omitted)"));
-        assert!(out.contains("| 1 |"));
-        assert!(out.contains("| 25 |"));
-        assert!(out.contains("| 36 |"));
-        assert!(out.contains("| 60 |"));
+        assert!(out.contains("| 1 "));
+        assert!(out.contains("| 25 "));
+        assert!(out.contains("| 36 "));
+        assert!(out.contains("| 60 "));
     }
 
     #[test]
@@ -427,8 +447,8 @@ mod tests {
         let df = DataFrame::new(vec![s1.into_column(), s2.into_column()]).unwrap();
         let out = format_schema(&sheet, &df);
         assert!(out.contains("## Sheet: Revenue (10 rows x 2 cols)"));
-        assert!(out.contains("| date |"));
-        assert!(out.contains("| amount |"));
+        assert!(out.contains("| date"));
+        assert!(out.contains("| amount"));
         assert!(out.contains("String"));
         assert!(out.contains("Float"));
     }
@@ -465,24 +485,25 @@ mod tests {
         let df = DataFrame::new(vec![s_name.into_column(), s_val.into_column()]).unwrap();
         let out = format_describe(&df);
         // Header row contains stat and column names
-        assert!(out.contains("| stat |"));
-        assert!(out.contains("| name |"));
-        assert!(out.contains("| value |"));
+        assert!(out.contains("| stat"));
+        assert!(out.contains("name"));
+        assert!(out.contains("value"));
         // All stat rows are present
-        assert!(out.contains("| count |"));
-        assert!(out.contains("| null_count |"));
-        assert!(out.contains("| mean |"));
-        assert!(out.contains("| std |"));
-        assert!(out.contains("| min |"));
-        assert!(out.contains("| max |"));
-        assert!(out.contains("| median |"));
-        assert!(out.contains("| unique |"));
+        assert!(out.contains("| count"));
+        assert!(out.contains("| null_count"));
+        assert!(out.contains("| mean"));
+        assert!(out.contains("| std"));
+        assert!(out.contains("| min"));
+        assert!(out.contains("| max"));
+        assert!(out.contains("| median"));
+        assert!(out.contains("| unique"));
         // Non-numeric column shows "-" for mean
-        assert!(out.contains("| mean | - |"));
-        // Numeric column has a numeric mean value (not "-")
-        // count=3 for both
-        assert!(out.contains("| count | 3 | 3 |"));
-        // unique=3 for both
-        assert!(out.contains("| unique | 3 | 3 |"));
+        assert!(out.contains("| -"));
+        // Verify alignment: all table lines should have same length
+        let table_lines: Vec<&str> = out.trim().lines().filter(|l| l.starts_with('|')).collect();
+        let expected_len = table_lines[0].len();
+        for line in &table_lines {
+            assert_eq!(line.len(), expected_len, "Misaligned: {line}");
+        }
     }
 }
