@@ -7,6 +7,14 @@ Two binaries, no runtime dependencies:
 - **`xlcat`** — view xlsx/xls files as markdown tables or CSV
 - **`xlset`** — modify cells in existing xlsx files, preserving formatting
 
+## xlcat demo
+
+![xlcat demo](demo/xlcat.gif)
+
+## xlset demo
+
+![xlset demo](demo/xlset.gif)
+
 ## Install
 
 ```bash
