@@ -16,7 +16,7 @@ jobs:
             os: macos-latest
             suffix: aarch64-apple-darwin
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             suffix: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
