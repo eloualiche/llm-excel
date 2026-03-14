@@ -7,10 +7,10 @@
 
 Output demo/xlset.gif
 
-Set FontSize 18
-Set Width 1400
-Set Height 700
-Set Padding 20
+Set FontSize 14
+Set Width 1100
+Set Height 550
+Set Padding 15
 Set Theme "GruvboxDarkHard"
 
 Set TypingSpeed 80ms

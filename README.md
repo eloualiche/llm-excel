@@ -1,5 +1,7 @@
 # llm-excel
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Command-line tools for viewing and editing Excel files, designed for use with LLMs and Claude Code.
 
 Two binaries, no runtime dependencies:
@@ -17,9 +19,26 @@ Two binaries, no runtime dependencies:
 
 ## Install
 
+### Pre-built binaries (macOS)
+
+Download from [Releases](https://github.com/eloualiche/llm-excel/releases):
+
 ```bash
-cargo build --release
-cp target/release/xlcat target/release/xlset ~/.local/bin/
+# Apple Silicon
+curl -L https://github.com/eloualiche/llm-excel/releases/latest/download/xlcat-aarch64-apple-darwin -o ~/.local/bin/xlcat
+curl -L https://github.com/eloualiche/llm-excel/releases/latest/download/xlset-aarch64-apple-darwin -o ~/.local/bin/xlset
+chmod +x ~/.local/bin/xlcat ~/.local/bin/xlset
+
+# Intel Mac
+curl -L https://github.com/eloualiche/llm-excel/releases/latest/download/xlcat-x86_64-apple-darwin -o ~/.local/bin/xlcat
+curl -L https://github.com/eloualiche/llm-excel/releases/latest/download/xlset-x86_64-apple-darwin -o ~/.local/bin/xlset
+chmod +x ~/.local/bin/xlcat ~/.local/bin/xlset
+```
+
+### From source
+
+```bash
+cargo install --path .
 ```
 
 Requires Rust 1.85+.
@@ -72,10 +91,9 @@ xlcat report.xlsx --csv --head 100 > subset.csv
 | units   | Int    |
 
 | date       | region | amount  | units |
-|---|---|---|---|
+|------------|--------|---------|-------|
 | 2024-01-01 | East   | 1234.56 | 100   |
 | 2024-01-02 | West   | 987.00  | 75    |
-...
 ... (1190 rows omitted) ...
 | 2024-12-30 | East   | 1100.00 | 92    |
 | 2024-12-31 | West   | 1250.75 | 110   |
